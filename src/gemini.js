@@ -303,6 +303,7 @@ async function askWithOllama({ prompt, history = [], useERP = false }) {
         model: config.ollamaModel,
         messages,
         stream: false,
+        keep_alive: "30m",
         options: {
           temperature: 0.3,
           num_ctx: config.ollamaNumCtx,

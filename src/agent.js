@@ -55,7 +55,8 @@ function getOrCreateState(userId) {
       leadStage: "new",
       isPaused: false,
       persona: null, // Pode ser: 'cliente', 'colaborador', 'fornecedor', 'parceiro', 'diretoria'
-      isAuthenticated: false
+      isAuthenticated: false,
+      lastDirectERP: null
     });
   }
   return memoryByUser.get(userId);
@@ -180,26 +181,90 @@ function moneyBR(value) {
   });
 }
 
+function formatSankhyaDate(raw) {
+  if (raw === null || raw === undefined) return null;
+  const txt = String(raw).trim();
+  if (!txt) return null;
+
+  const matchSankhya = txt.match(/^(\d{2})(\d{2})(\d{4})(?:\s+(\d{2}:\d{2}:\d{2}))?$/);
+  if (matchSankhya) {
+    const [, dd, mm, yyyy, hh = "00:00:00"] = matchSankhya;
+    return `${dd}/${mm}/${yyyy} ${hh}`;
+  }
+
+  const iso = new Date(txt);
+  if (!Number.isNaN(iso.getTime())) {
+    return iso.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  }
+
+  return txt;
+}
+
+function getNowBR() {
+  const dataNativa = new Date();
+  dataNativa.setHours(dataNativa.getHours() - 3);
+  return dataNativa.toLocaleString("pt-BR");
+}
+
 function appendHistory(state, userText, assistantText) {
   state.history.push({ role: "user", content: userText });
   state.history.push({ role: "assistant", content: assistantText });
   if (state.history.length > 20) state.history.shift();
 }
 
-async function tryDirectERPReply(rawText) {
+async function tryDirectERPReply(rawText, state) {
   const text = normalize(rawText || "");
   if (!text) return null;
 
+  if (text.includes("qual foi a data") || text.includes("qual a data") || text.includes("que data")) {
+    const last = state?.lastDirectERP;
+    if (last?.kind === "ultimo_produto") {
+      const p = last.payload || {};
+      const dataProduto = formatSankhyaDate(
+        p.DHALTER || p.DTALTER || p.DTINC || p.DHINCLUSAO || p.DTCAD
+      );
+
+      if (dataProduto) {
+        return `A data do último produto consultado foi: *${dataProduto}*.`;
+      }
+
+      return [
+        "Na consulta anterior eu trouxe código, descrição e unidade, mas não recebi um campo de data.",
+        "Se quiser, posso consultar especificamente a data de cadastro/alteração do último produto."
+      ].join("\n");
+    }
+
+    return `Agora são *${getNowBR()}* (horário de Brasília).`;
+  }
+
   if ((text.includes("ultimo") || text.includes("mais recente")) && text.includes("produto") && text.includes("cadastrado")) {
-    const res = await executarSQL("SELECT TOP 1 CODPROD, DESCRPROD, CODVOL FROM TGFPRO ORDER BY CODPROD DESC");
+    let res;
+    try {
+      res = await executarSQL("SELECT TOP 1 CODPROD, DESCRPROD, CODVOL, DHALTER FROM TGFPRO ORDER BY CODPROD DESC");
+    } catch {
+      res = await executarSQL("SELECT TOP 1 CODPROD, DESCRPROD, CODVOL FROM TGFPRO ORDER BY CODPROD DESC");
+    }
     const p = res?.registros?.[0];
     if (!p) return "Não encontrei produto cadastrado para informar agora.";
-    return [
+    const dataProduto = formatSankhyaDate(p.DHALTER || p.DTALTER || p.DTINC || p.DHINCLUSAO || p.DTCAD);
+    state.lastDirectERP = {
+      kind: "ultimo_produto",
+      payload: p,
+      ts: Date.now()
+    };
+
+    const resposta = [
       "Último produto cadastrado:",
       `- *Código*: ${p.CODPROD ?? "-"}`,
       `- *Descrição*: ${p.DESCRPROD ?? "-"}`,
       `- *Unidade*: ${p.CODVOL ?? "-"}`
-    ].join("\n");
+    ];
+
+    if (dataProduto) {
+      resposta.push(`- *Data*: ${dataProduto}`);
+    }
+
+    return resposta.join("\n");
   }
 
   if (text.includes("faturamento") && text.includes("hoje")) {
@@ -309,7 +374,7 @@ export async function replyToUser({ userId, userName, text }) {
   if (state.persona === "diretoria" && state.isAuthenticated) {
     if (config.erpDirectFastpath) {
       try {
-        const directReply = await tryDirectERPReply(text);
+        const directReply = await tryDirectERPReply(text, state);
         if (directReply) {
           appendHistory(state, text, directReply);
           return directReply;
@@ -346,12 +411,20 @@ export async function replyToUser({ userId, userName, text }) {
       text = `${text} [O usuário exige o relatório do mês ${m} e ano ${y}. Substitua e deduzá a data nas queries SQL usando ${y}${m} sem NUNCA perguntar!]`;
     }
 
-    basePrompt.push(
-      `O usuário atual faz parte da DIRETORIA. Forneça respostas estratégicas através do ERP Sankhya. Atenção: HOJE é dia ${todayStr} (No SQL: '${todayYMD}'). ATENÇÃO: Se o usuário pedir "hoje", você deve usar '${todayYMD}'. REGRA ABSOLUTA DE DATAS: O banco de dados só aceita AAAAMMDD completo. A menos que seja impossível, NÃO DEVOLVA NENHUMA PERGUNTA perguntando sobre Mês ou Ano que ele quer. Assuma sempre de imediato o mês atual e o ano atual se eles não forem ditos. Trabalhe num processo fluido e silencioso!`,
-      `MUITO IMPORTANTE SOBRE A GÍRIA "TOP" ou "TOPs": No jargão da GTM Alimentos, a palavra "TOP" significa EXCLUSIVAMENTE "Tipo de Operação" (coluna CODTIPOPER da tabela TGFCAB). Se o usuário disser "vendas da TOP 1100", execute silenciosamente WHERE c.CODTIPOPER IN (1100) na sua próxima operação. NUNCA, SOB HIPÓTESE ALGUMA, pergunte para o usuário se ele queria dizer "limite de registros sql", já assuma silenciosamente que é o Filtro CODTIPOPER e só mostre o resultado final financeiro!`,
-      `MUITO IMPORTANTE: Se a ferramenta sankhya_query retornar um erro (como falha de acesso), acione silenciosamente a ferramenta sankhya_sql e consiga o dado via banco de dados bruto. NUNCA recuse buscar um dado que envolva estoques ou contas, use o SQL.`,
-      `ATENÇÃO À FORMATAÇÃO (WHATSAPP): O WhatsApp não suporta tabelas com barras (|) ou marcação Markdown HTML. NUNCA tente gerar tabelas para listas de produtos, notas ou estoques. Em vez disso, use sempre TÓPICOS ou LISTAS NUMERADAS! Formate usando asteriscos para *negrito* e quebras de linha claras. Exemplo: "- *Produto A*: 10 unidades".`
-    );
+    if (runtimeOllama) {
+      basePrompt.push(
+        `Usuário da DIRETORIA. Seja extremamente objetivo e rápido.`,
+        `Se precisar de ERP, execute consultas pequenas (TOP 1/TOP 10) e retorne em tópicos.`,
+        `Nunca faça perguntas desnecessárias de mês/ano para pedidos simples de hoje.`
+      );
+    } else {
+      basePrompt.push(
+        `O usuário atual faz parte da DIRETORIA. Forneça respostas estratégicas através do ERP Sankhya. Atenção: HOJE é dia ${todayStr} (No SQL: '${todayYMD}'). ATENÇÃO: Se o usuário pedir "hoje", você deve usar '${todayYMD}'. REGRA ABSOLUTA DE DATAS: O banco de dados só aceita AAAAMMDD completo. A menos que seja impossível, NÃO DEVOLVA NENHUMA PERGUNTA perguntando sobre Mês ou Ano que ele quer. Assuma sempre de imediato o mês atual e o ano atual se eles não forem ditos. Trabalhe num processo fluido e silencioso!`,
+        `MUITO IMPORTANTE SOBRE A GÍRIA "TOP" ou "TOPs": No jargão da GTM Alimentos, a palavra "TOP" significa EXCLUSIVAMENTE "Tipo de Operação" (coluna CODTIPOPER da tabela TGFCAB). Se o usuário disser "vendas da TOP 1100", execute silenciosamente WHERE c.CODTIPOPER IN (1100) na sua próxima operação. NUNCA, SOB HIPÓTESE ALGUMA, pergunte para o usuário se ele queria dizer "limite de registros sql", já assuma silenciosamente que é o Filtro CODTIPOPER e só mostre o resultado final financeiro!`,
+        `MUITO IMPORTANTE: Se a ferramenta sankhya_query retornar um erro (como falha de acesso), acione silenciosamente a ferramenta sankhya_sql e consiga o dado via banco de dados bruto. NUNCA recuse buscar um dado que envolva estoques ou contas, use o SQL.`,
+        `ATENÇÃO À FORMATAÇÃO (WHATSAPP): O WhatsApp não suporta tabelas com barras (|) ou marcação Markdown HTML. NUNCA tente gerar tabelas para listas de produtos, notas ou estoques. Em vez disso, use sempre TÓPICOS ou LISTAS NUMERADAS! Formate usando asteriscos para *negrito* e quebras de linha claras. Exemplo: "- *Produto A*: 10 unidades".`
+      );
+    }
   } else {
     basePrompt.push(
       `Se ele for cliente, venda os pescados e fale sobre saúde. Se for colaborador, seja um RH amistoso. Se fornecedor/parceiro, seja comercial e profissional.`
