@@ -381,14 +381,11 @@ export async function askGemini({ prompt, history = [], useERP = false }) {
   const provider = resolveProvider();
 
   if (provider === 'gemini') {
-    const respostaGemini = await askWithGemini({ prompt, history, useERP });
-    if (respostaGemini) return respostaGemini;
-    if (config.llmProvider === 'gemini') return null;
+    return askWithGemini({ prompt, history, useERP });
   }
 
-  if (provider === 'ollama' || config.llmProvider === 'auto') {
-    const respostaOllama = await askWithOllama({ prompt, history, useERP });
-    if (respostaOllama) return respostaOllama;
+  if (provider === 'ollama') {
+    return askWithOllama({ prompt, history, useERP });
   }
 
   return null;

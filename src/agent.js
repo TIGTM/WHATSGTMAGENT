@@ -48,6 +48,38 @@ function normalize(text) {
     .trim();
 }
 
+function isWriteCommandIntent(rawText) {
+  const text = normalize(rawText || "");
+  if (!text) return false;
+
+  const writeVerbs = [
+    "insira",
+    "inserir",
+    "incluir",
+    "inclua",
+    "cadastre",
+    "cadastrar",
+    "grave",
+    "gravar",
+    "atualize",
+    "atualizar",
+    "altere",
+    "alterar",
+    "edite",
+    "editar",
+    "apague",
+    "apagar",
+    "delete",
+    "deletar",
+    "exclua",
+    "excluir",
+    "remova",
+    "remover"
+  ];
+
+  return writeVerbs.some((v) => text.includes(v));
+}
+
 function getOrCreateState(userId) {
   if (!memoryByUser.has(userId)) {
     memoryByUser.set(userId, {
@@ -246,6 +278,28 @@ async function buscarNomeUsuarioPorCodigo(codUsu) {
 async function tryDirectERPReply(rawText, state) {
   const text = normalize(rawText || "");
   if (!text) return null;
+
+  const writeIntent = isWriteCommandIntent(text);
+
+  if (writeIntent && !config.erpWriteEnabled) {
+    return [
+      "Comandos de escrita no Sankhya estão bloqueados neste ambiente (*ERP_WRITE_ENABLED=false*).",
+      "Para inserir/alterar/excluir dados, habilite *ERP_WRITE_ENABLED=true* no .env e reinicie o serviço."
+    ].join("\n");
+  }
+
+  if (writeIntent && text.includes("ad_gtmalimentos")) {
+    const probe = await executarSQL("SELECT TOP 1 * FROM AD_GTMALIMENTOS").catch((error) => ({ __error: error }));
+    if (probe?.__error) {
+      const msg = normalize(probe.__error?.message || String(probe.__error));
+      if (msg.includes("nao autorizado")) {
+        return [
+          "A credencial atual da integração não tem permissão para acessar a tabela *AD_GTMALIMENTOS* (retorno: Não autorizado).",
+          "Você precisa liberar a permissão SQL/entidade para esse usuário no Sankhya ou expor um serviço dedicado para essa gravação."
+        ].join("\n");
+      }
+    }
+  }
 
   const perguntaQuemCadastrou =
     text.includes("quem cadastrou") ||
