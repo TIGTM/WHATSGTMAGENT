@@ -20,7 +20,7 @@ export const config = {
   geminiModel: (process.env.GEMINI_MODEL || "gemini-2.5-flash").trim(),
   llmProvider: ["auto", "gemini", "ollama"].includes(llmProvider) ? llmProvider : "auto",
   ollamaBaseUrl: (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").trim(),
-  ollamaModel: (process.env.OLLAMA_MODEL || "llama3.2:3b-instruct").trim(),
+  ollamaModel: (process.env.OLLAMA_MODEL || "llama3.2:3").trim(),
   erpWriteEnabled,
   maxGlobalContextChars: Number.isFinite(maxGlobalContextChars) ? maxGlobalContextChars : 12000,
   welcomeMessage:
