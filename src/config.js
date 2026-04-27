@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const llmProvider = (process.env.LLM_PROVIDER || "auto").trim().toLowerCase();
+const llmProvider = (process.env.LLM_PROVIDER || "gemini").trim().toLowerCase();
 const erpWriteEnabled = ["1", "true", "yes", "on"].includes(
   (process.env.ERP_WRITE_ENABLED || "false").trim().toLowerCase()
 );
@@ -32,7 +32,7 @@ export const config = {
   directorPin: (process.env.DIRECTOR_PIN || "1234").trim(),
   geminiApiKey: (process.env.GEMINI_API_KEY || "").trim(),
   geminiModel: (process.env.GEMINI_MODEL || "gemini-2.5-flash").trim(),
-  llmProvider: ["auto", "gemini", "ollama"].includes(llmProvider) ? llmProvider : "auto",
+  llmProvider: ["auto", "gemini", "ollama"].includes(llmProvider) ? llmProvider : "gemini",
   ollamaBaseUrl: (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").trim(),
   ollamaModel: (process.env.OLLAMA_MODEL || "llama3.2").trim(),
   ollamaTimeoutMs: Number.isFinite(ollamaTimeoutMs) ? ollamaTimeoutMs : 180000,

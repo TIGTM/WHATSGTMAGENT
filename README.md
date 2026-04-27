@@ -58,34 +58,34 @@ Bot de WhatsApp com IA, integrado ao Sankhya ERP, pronto para rodar em VPS 24/7.
 
 No primeiro start, escaneie o QR code no terminal.
 
-## Modelos gratuitos (recomendado para VPS)
+## Gemini API (recomendado para assertividade)
 
-Para operar sem custo de API, use Ollama local:
+Para usar Gemini como provedor principal:
 
-1. Instale Ollama na VPS.
-2. Baixe um modelo:
+1. Gere sua chave no Google AI Studio.
+2. Configure no .env:
 
-	ollama pull llama3.2
-
-3. Configure no .env:
-
-	 LLM_PROVIDER=ollama
-	 OLLAMA_BASE_URL=http://127.0.0.1:11434
-	OLLAMA_MODEL=llama3.2
-	OLLAMA_TIMEOUT_MS=180000
-	OLLAMA_NUM_CTX=2048
-	OLLAMA_NUM_PREDICT=256
+	LLM_PROVIDER=gemini
+	GEMINI_API_KEY=SUA_CHAVE_AQUI
+	GEMINI_MODEL=gemini-2.5-flash
 	ERP_DIRECT_FASTPATH=true
 	MAX_GLOBAL_CONTEXT_CHARS=4000
 	WA_FIRE_INIT_QUERIES=false
-	WA_QUERY_TIMEOUT_MS=180000
-	WA_CONNECT_TIMEOUT_MS=60000
+	WA_QUERY_TIMEOUT_MS=240000
+	WA_CONNECT_TIMEOUT_MS=90000
 	WA_KEEPALIVE_INTERVAL_MS=15000
 	WA_RECONNECT_BASE_DELAY_MS=2000
 	WA_RECONNECT_MAX_DELAY_MS=30000
 
-Se sua VPS for CPU-only e ocorrer timeout no Ollama, aumente OLLAMA_TIMEOUT_MS para 240000 e reduza OLLAMA_NUM_CTX para 1536.
-Se aparecer "init queries" com status 408 no Baileys, mantenha WA_FIRE_INIT_QUERIES=false e aumente WA_QUERY_TIMEOUT_MS para 240000.
+Bloco Ollama (opcional, mantenha comentado se nao for usar):
+
+	# OLLAMA_BASE_URL=http://127.0.0.1:11434
+	# OLLAMA_MODEL=llama3.2
+	# OLLAMA_TIMEOUT_MS=180000
+	# OLLAMA_NUM_CTX=2048
+	# OLLAMA_NUM_PREDICT=256
+
+Se aparecer "init queries" com status 408 no Baileys, mantenha WA_FIRE_INIT_QUERIES=false e use WA_QUERY_TIMEOUT_MS entre 240000 e 300000.
 
 ## Operacoes no Sankhya
 
