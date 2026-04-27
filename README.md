@@ -17,7 +17,7 @@ Bot de WhatsApp com IA, integrado ao Sankhya ERP, pronto para rodar em VPS 24/7.
 - Conta de WhatsApp para autenticar via QR Code
 - Para IA gratuita local:
 	- Ollama instalado na VPS
-	- Um modelo local carregado (ex: llama3.2:3)
+	- Um modelo local carregado (ex: llama3.2)
 
 ## Instalacao local
 
@@ -65,13 +65,13 @@ Para operar sem custo de API, use Ollama local:
 1. Instale Ollama na VPS.
 2. Baixe um modelo:
 
-	ollama pull llama3.2:3
+	ollama pull llama3.2
 
 3. Configure no .env:
 
 	 LLM_PROVIDER=ollama
 	 OLLAMA_BASE_URL=http://127.0.0.1:11434
-	OLLAMA_MODEL=llama3.2:3
+	OLLAMA_MODEL=llama3.2
 
 ## Operacoes no Sankhya
 
