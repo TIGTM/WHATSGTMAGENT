@@ -13,6 +13,14 @@ const maxGlobalContextChars = Number(process.env.MAX_GLOBAL_CONTEXT_CHARS || 400
 const ollamaTimeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 180000);
 const ollamaNumCtx = Number(process.env.OLLAMA_NUM_CTX || 2048);
 const ollamaNumPredict = Number(process.env.OLLAMA_NUM_PREDICT || 256);
+const waQueryTimeoutMs = Number(process.env.WA_QUERY_TIMEOUT_MS || 180000);
+const waConnectTimeoutMs = Number(process.env.WA_CONNECT_TIMEOUT_MS || 60000);
+const waKeepAliveIntervalMs = Number(process.env.WA_KEEPALIVE_INTERVAL_MS || 15000);
+const waReconnectBaseDelayMs = Number(process.env.WA_RECONNECT_BASE_DELAY_MS || 2000);
+const waReconnectMaxDelayMs = Number(process.env.WA_RECONNECT_MAX_DELAY_MS || 30000);
+const waFireInitQueries = ["1", "true", "yes", "on"].includes(
+  (process.env.WA_FIRE_INIT_QUERIES || "false").trim().toLowerCase()
+);
 
 export const config = {
   companyName: process.env.COMPANY_NAME || "GTM Alimentos, Q'Pescado e Bem Fresco",
@@ -32,6 +40,12 @@ export const config = {
   ollamaNumPredict: Number.isFinite(ollamaNumPredict) ? ollamaNumPredict : 256,
   erpWriteEnabled,
   erpDirectFastpath,
+  waQueryTimeoutMs: Number.isFinite(waQueryTimeoutMs) ? waQueryTimeoutMs : 180000,
+  waConnectTimeoutMs: Number.isFinite(waConnectTimeoutMs) ? waConnectTimeoutMs : 60000,
+  waKeepAliveIntervalMs: Number.isFinite(waKeepAliveIntervalMs) ? waKeepAliveIntervalMs : 15000,
+  waReconnectBaseDelayMs: Number.isFinite(waReconnectBaseDelayMs) ? waReconnectBaseDelayMs : 2000,
+  waReconnectMaxDelayMs: Number.isFinite(waReconnectMaxDelayMs) ? waReconnectMaxDelayMs : 30000,
+  waFireInitQueries,
   maxGlobalContextChars: Number.isFinite(maxGlobalContextChars) ? maxGlobalContextChars : 4000,
   welcomeMessage:
     process.env.WELCOME_MESSAGE ||

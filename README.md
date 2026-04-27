@@ -77,8 +77,15 @@ Para operar sem custo de API, use Ollama local:
 	OLLAMA_NUM_PREDICT=256
 	ERP_DIRECT_FASTPATH=true
 	MAX_GLOBAL_CONTEXT_CHARS=4000
+	WA_FIRE_INIT_QUERIES=false
+	WA_QUERY_TIMEOUT_MS=180000
+	WA_CONNECT_TIMEOUT_MS=60000
+	WA_KEEPALIVE_INTERVAL_MS=15000
+	WA_RECONNECT_BASE_DELAY_MS=2000
+	WA_RECONNECT_MAX_DELAY_MS=30000
 
 Se sua VPS for CPU-only e ocorrer timeout no Ollama, aumente OLLAMA_TIMEOUT_MS para 240000 e reduza OLLAMA_NUM_CTX para 1536.
+Se aparecer "init queries" com status 408 no Baileys, mantenha WA_FIRE_INIT_QUERIES=false e aumente WA_QUERY_TIMEOUT_MS para 240000.
 
 ## Operacoes no Sankhya
 
