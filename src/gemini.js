@@ -303,14 +303,15 @@ async function askWithOllama({ prompt, history = [], useERP = false }) {
         stream: false,
         options: {
           temperature: 0.3,
-          num_ctx: 8192
+          num_ctx: config.ollamaNumCtx,
+          num_predict: config.ollamaNumPredict
         },
         tools: useERP ? OLLAMA_TOOLS : undefined
       };
 
       const response = await axios.post(url, payload, {
         headers: { "Content-Type": "application/json" },
-        timeout: 60000
+        timeout: config.ollamaTimeoutMs
       });
 
       const message = response.data?.message || {};
@@ -358,6 +359,9 @@ async function askWithOllama({ prompt, history = [], useERP = false }) {
     } catch (error) {
       console.error("[Ollama] Falha ao gerar resposta:", error.message);
       if (error.response?.data) console.error(JSON.stringify(error.response.data, null, 2));
+      if (error.code === 'ECONNABORTED' || /timeout/i.test(String(error.message || ''))) {
+        return "Estou processando sua solicitação no ERP, mas o modelo local demorou além do limite. Tente novamente em alguns segundos ou simplifique a pergunta.";
+      }
       return null;
     }
   }

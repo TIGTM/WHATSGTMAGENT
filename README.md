@@ -72,6 +72,12 @@ Para operar sem custo de API, use Ollama local:
 	 LLM_PROVIDER=ollama
 	 OLLAMA_BASE_URL=http://127.0.0.1:11434
 	OLLAMA_MODEL=llama3.2
+	OLLAMA_TIMEOUT_MS=180000
+	OLLAMA_NUM_CTX=4096
+	OLLAMA_NUM_PREDICT=512
+	MAX_GLOBAL_CONTEXT_CHARS=6000
+
+Se sua VPS for CPU-only e ocorrer timeout no Ollama, aumente OLLAMA_TIMEOUT_MS para 240000 e reduza OLLAMA_NUM_CTX para 3072.
 
 ## Operacoes no Sankhya
 
