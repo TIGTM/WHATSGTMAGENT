@@ -107,6 +107,73 @@ const SQL_VERBOS_BLOQUEADOS = [
 ];
 
 const OLLAMA_MAX_ITERATIONS = 3;
+const GEMINI_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const GEMINI_RETRYABLE_CODES = new Set([
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'ENOTFOUND'
+]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableGeminiError(error) {
+  const status = Number(error?.response?.status || 0);
+  if (GEMINI_RETRYABLE_STATUS.has(status)) return true;
+
+  const code = String(error?.code || '').toUpperCase();
+  if (GEMINI_RETRYABLE_CODES.has(code)) return true;
+
+  const msg = String(error?.response?.data?.error?.message || error?.message || '').toLowerCase();
+  return /high demand|unavailable|timeout|temporar|rate limit|resource exhausted|try again later/.test(msg);
+}
+
+function getRetryAfterMs(error) {
+  const header = error?.response?.headers?.['retry-after'];
+  const raw = Array.isArray(header) ? header[0] : header;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.min(seconds * 1000, 30000);
+}
+
+function getGeminiBackoffMs(retryAttempt, error) {
+  const retryAfterMs = getRetryAfterMs(error);
+  if (retryAfterMs !== null) return retryAfterMs;
+
+  const baseMs = config.geminiRetryBaseDelayMs || 1200;
+  const exp = Math.max(0, retryAttempt - 1);
+  const jitterMs = Math.floor(Math.random() * 250);
+  return Math.min((baseMs * (2 ** exp)) + jitterMs, 30000);
+}
+
+async function postGeminiWithRetry(url, payload) {
+  const maxAttempts = config.geminiRetryMaxAttempts || 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await axios.post(url, payload, {
+        headers: { "Content-Type": "application/json" },
+        timeout: 30000
+      });
+    } catch (error) {
+      if (!isRetryableGeminiError(error) || attempt >= maxAttempts) {
+        throw error;
+      }
+
+      const waitMs = getGeminiBackoffMs(attempt, error);
+      const status = Number(error?.response?.status || 0);
+      console.warn(
+        `[Gemini] Falha transitória (${attempt}/${maxAttempts}) status=${status || 'N/A'}. Nova tentativa em ${waitMs}ms.`
+      );
+      await sleep(waitMs);
+    }
+  }
+
+  return null;
+}
 
 function parseFunctionArgs(rawArgs) {
   if (!rawArgs) return {};
@@ -234,10 +301,7 @@ async function askWithGemini({ prompt, history = [], useERP = false }) {
     };
 
     try {
-      const response = await axios.post(url, payload, {
-        headers: { "Content-Type": "application/json" },
-        timeout: 30000
-      });
+      const response = await postGeminiWithRetry(url, payload);
 
       const parts = response.data?.candidates?.[0]?.content?.parts || [];
       const functionCall = parts.find((p) => p.functionCall)?.functionCall;
@@ -277,6 +341,9 @@ async function askWithGemini({ prompt, history = [], useERP = false }) {
       if (error.response?.data) console.error(JSON.stringify(error.response.data, null, 2));
       const status = Number(error.response?.status || 0);
       const msg = String(error.response?.data?.error?.message || error.message || "");
+      if (status === 429 || /rate limit|resource exhausted|quota/i.test(msg)) {
+        return "O Gemini atingiu limite temporário de uso (429). Aguarde alguns segundos e tente novamente.";
+      }
       if (status === 503 || /high demand|unavailable/i.test(msg)) {
         return "O Gemini está com alta demanda no momento (503). Pode reenviar a mesma pergunta em alguns segundos que eu tento novamente.";
       }

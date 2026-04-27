@@ -68,6 +68,8 @@ Para usar Gemini como provedor principal:
 	LLM_PROVIDER=gemini
 	GEMINI_API_KEY=SUA_CHAVE_AQUI
 	GEMINI_MODEL=gemini-2.5-flash
+	GEMINI_RETRY_MAX_ATTEMPTS=3
+	GEMINI_RETRY_BASE_DELAY_MS=1200
 	ERP_DIRECT_FASTPATH=true
 	MAX_GLOBAL_CONTEXT_CHARS=4000
 	WA_FIRE_INIT_QUERIES=false
@@ -86,6 +88,7 @@ Bloco Ollama (opcional, mantenha comentado se nao for usar):
 	# OLLAMA_NUM_PREDICT=256
 
 Se aparecer "init queries" com status 408 no Baileys, mantenha WA_FIRE_INIT_QUERIES=false e use WA_QUERY_TIMEOUT_MS entre 240000 e 300000.
+Se ocorrer 503/"high demand" no Gemini, aumente temporariamente GEMINI_RETRY_MAX_ATTEMPTS para 4.
 
 ## Operacoes no Sankhya
 

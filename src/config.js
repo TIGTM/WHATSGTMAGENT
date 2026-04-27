@@ -13,6 +13,8 @@ const maxGlobalContextChars = Number(process.env.MAX_GLOBAL_CONTEXT_CHARS || 400
 const ollamaTimeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 180000);
 const ollamaNumCtx = Number(process.env.OLLAMA_NUM_CTX || 2048);
 const ollamaNumPredict = Number(process.env.OLLAMA_NUM_PREDICT || 256);
+const geminiRetryMaxAttempts = Number(process.env.GEMINI_RETRY_MAX_ATTEMPTS || 3);
+const geminiRetryBaseDelayMs = Number(process.env.GEMINI_RETRY_BASE_DELAY_MS || 1200);
 const waQueryTimeoutMs = Number(process.env.WA_QUERY_TIMEOUT_MS || 180000);
 const waConnectTimeoutMs = Number(process.env.WA_CONNECT_TIMEOUT_MS || 60000);
 const waKeepAliveIntervalMs = Number(process.env.WA_KEEPALIVE_INTERVAL_MS || 15000);
@@ -38,6 +40,12 @@ export const config = {
   ollamaTimeoutMs: Number.isFinite(ollamaTimeoutMs) ? ollamaTimeoutMs : 180000,
   ollamaNumCtx: Number.isFinite(ollamaNumCtx) ? ollamaNumCtx : 2048,
   ollamaNumPredict: Number.isFinite(ollamaNumPredict) ? ollamaNumPredict : 256,
+  geminiRetryMaxAttempts: Number.isFinite(geminiRetryMaxAttempts)
+    ? Math.max(1, Math.min(5, Math.trunc(geminiRetryMaxAttempts)))
+    : 3,
+  geminiRetryBaseDelayMs: Number.isFinite(geminiRetryBaseDelayMs)
+    ? Math.max(200, Math.min(10000, Math.trunc(geminiRetryBaseDelayMs)))
+    : 1200,
   erpWriteEnabled,
   erpDirectFastpath,
   waQueryTimeoutMs: Number.isFinite(waQueryTimeoutMs) ? waQueryTimeoutMs : 180000,
