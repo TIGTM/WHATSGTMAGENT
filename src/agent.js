@@ -212,9 +212,44 @@ function appendHistory(state, userText, assistantText) {
   if (state.history.length > 20) state.history.shift();
 }
 
+async function executarPrimeiraSQLValida(sqls = []) {
+  let ultimoErro = null;
+  for (const sql of sqls) {
+    try {
+      return await executarSQL(sql);
+    } catch (error) {
+      ultimoErro = error;
+    }
+  }
+  if (ultimoErro) throw ultimoErro;
+  return null;
+}
+
+async function buscarNomeUsuarioPorCodigo(codUsu) {
+  const cod = Number(codUsu);
+  if (!Number.isFinite(cod)) return null;
+
+  const consulta = await executarPrimeiraSQLValida([
+    `SELECT TOP 1 CODUSU, NOMEUSU FROM TSIUSU WHERE CODUSU = ${cod}`,
+    `SELECT TOP 1 CODUSU, NOME FROM TSIUSU WHERE CODUSU = ${cod}`,
+    `SELECT TOP 1 CODUSU FROM TSIUSU WHERE CODUSU = ${cod}`
+  ]).catch(() => null);
+
+  const row = consulta?.registros?.[0] || {};
+  if (!row.CODUSU && !row.NOMEUSU && !row.NOME) return null;
+  return {
+    codUsu: row.CODUSU ?? cod,
+    nomeUsu: row.NOMEUSU ?? row.NOME ?? null
+  };
+}
+
 async function tryDirectERPReply(rawText, state) {
   const text = normalize(rawText || "");
   if (!text) return null;
+
+  const perguntaQuemCadastrou =
+    text.includes("quem cadastrou") ||
+    (text.includes("quem") && text.includes("cadastro"));
 
   if (text.includes("qual foi a data") || text.includes("qual a data") || text.includes("que data")) {
     const last = state?.lastDirectERP;
@@ -234,16 +269,112 @@ async function tryDirectERPReply(rawText, state) {
       ].join("\n");
     }
 
+    if (last?.kind === "ultimo_cliente") {
+      const c = last.payload || {};
+      const dataCliente = formatSankhyaDate(
+        c.DTCAD || c.DHINCLUSAO || c.DTINC || c.DHALTER || c.DTALTER
+      );
+      if (dataCliente) {
+        return `A data do último cliente consultado foi: *${dataCliente}*.`;
+      }
+      return "Na consulta anterior do cliente eu não recebi um campo de data para informar.";
+    }
+
     return `Agora são *${getNowBR()}* (horário de Brasília).`;
   }
 
-  if ((text.includes("ultimo") || text.includes("mais recente")) && text.includes("produto") && text.includes("cadastrado")) {
-    let res;
-    try {
-      res = await executarSQL("SELECT TOP 1 CODPROD, DESCRPROD, CODVOL, DHALTER FROM TGFPRO ORDER BY CODPROD DESC");
-    } catch {
-      res = await executarSQL("SELECT TOP 1 CODPROD, DESCRPROD, CODVOL FROM TGFPRO ORDER BY CODPROD DESC");
+  if (perguntaQuemCadastrou) {
+    const last = state?.lastDirectERP;
+
+    if (last?.kind === "ultimo_cliente") {
+      const c = last.payload || {};
+      const codParc = Number(c.CODPARC);
+      let codUsu = c.CODUSUINC ?? c.CODUSU ?? c.CODUSUALT ?? null;
+
+      if (!codUsu && Number.isFinite(codParc)) {
+        const audit = await executarPrimeiraSQLValida([
+          `SELECT TOP 1 CODPARC, CODUSUINC FROM TGFPAR WHERE CODPARC = ${codParc}`,
+          `SELECT TOP 1 CODPARC, CODUSU FROM TGFPAR WHERE CODPARC = ${codParc}`,
+          `SELECT TOP 1 CODPARC, CODUSUALT FROM TGFPAR WHERE CODPARC = ${codParc}`
+        ]).catch(() => null);
+
+        const a = audit?.registros?.[0] || {};
+        codUsu = a.CODUSUINC ?? a.CODUSU ?? a.CODUSUALT ?? null;
+      }
+
+      const nomeCliente = c.NOMEPARC ? String(c.NOMEPARC) : `código ${c.CODPARC ?? "-"}`;
+
+      if (!codUsu) {
+        return [
+          `Não consegui identificar o usuário de cadastro para o cliente *${nomeCliente}* com os campos disponíveis nessa consulta.`,
+          "Se quiser, faço uma consulta específica de auditoria para rastrear o usuário de inclusão nessa base."
+        ].join("\n");
+      }
+
+      const usuario = await buscarNomeUsuarioPorCodigo(codUsu);
+      if (usuario?.nomeUsu) {
+        return `O cliente *${nomeCliente}* foi cadastrado por *${usuario.nomeUsu}* (cód. ${usuario.codUsu}).`;
+      }
+      return `O cliente *${nomeCliente}* foi cadastrado pelo usuário de código *${codUsu}*.`;
     }
+
+    if (last?.kind === "ultimo_produto") {
+      const p = last.payload || {};
+      const codUsu = p.CODUSUINC ?? p.CODUSU ?? p.CODUSUALT ?? null;
+      if (codUsu) {
+        const usuario = await buscarNomeUsuarioPorCodigo(codUsu);
+        if (usuario?.nomeUsu) {
+          return `O último produto consultado foi cadastrado por *${usuario.nomeUsu}* (cód. ${usuario.codUsu}).`;
+        }
+        return `O último produto consultado foi cadastrado pelo usuário de código *${codUsu}*.`;
+      }
+      return "A consulta anterior do produto não retornou usuário de cadastro.";
+    }
+
+    return "Para eu responder quem cadastrou, primeiro me peça um cadastro específico (ex.: qual o último cliente cadastrado).";
+  }
+
+  if ((text.includes("ultimo") || text.includes("mais recente")) && (text.includes("cliente") || text.includes("parceiro")) && text.includes("cadastrado")) {
+    const res = await executarPrimeiraSQLValida([
+      "SELECT TOP 1 CODPARC, NOMEPARC, DTCAD, CODUSUINC FROM TGFPAR ORDER BY CODPARC DESC",
+      "SELECT TOP 1 CODPARC, NOMEPARC, DTCAD, CODUSU FROM TGFPAR ORDER BY CODPARC DESC",
+      "SELECT TOP 1 CODPARC, NOMEPARC, DTCAD FROM TGFPAR ORDER BY CODPARC DESC"
+    ]);
+
+    const c = res?.registros?.[0];
+    if (!c) return "Não encontrei cliente cadastrado para informar agora.";
+
+    state.lastDirectERP = {
+      kind: "ultimo_cliente",
+      payload: c,
+      ts: Date.now()
+    };
+
+    const dataCadastro = formatSankhyaDate(c.DTCAD || c.DHINCLUSAO || c.DTINC || c.DHALTER || c.DTALTER);
+    const resposta = [
+      "Último cliente cadastrado:",
+      `- *Código*: ${c.CODPARC ?? "-"}`,
+      `- *Nome*: ${c.NOMEPARC ?? "-"}`
+    ];
+
+    if (dataCadastro) resposta.push(`- *Data*: ${dataCadastro}`);
+
+    const codUsu = c.CODUSUINC ?? c.CODUSU ?? c.CODUSUALT;
+    if (codUsu !== null && codUsu !== undefined && String(codUsu).trim()) {
+      resposta.push(`- *Usuário do cadastro (cód.)*: ${codUsu}`);
+    }
+
+    return resposta.join("\n");
+  }
+
+  if ((text.includes("ultimo") || text.includes("mais recente")) && text.includes("produto") && text.includes("cadastrado")) {
+    const res = await executarPrimeiraSQLValida([
+      "SELECT TOP 1 CODPROD, DESCRPROD, CODVOL, DHALTER, CODUSUINC FROM TGFPRO ORDER BY CODPROD DESC",
+      "SELECT TOP 1 CODPROD, DESCRPROD, CODVOL, DHALTER, CODUSU FROM TGFPRO ORDER BY CODPROD DESC",
+      "SELECT TOP 1 CODPROD, DESCRPROD, CODVOL, DHALTER FROM TGFPRO ORDER BY CODPROD DESC",
+      "SELECT TOP 1 CODPROD, DESCRPROD, CODVOL FROM TGFPRO ORDER BY CODPROD DESC"
+    ]);
+
     const p = res?.registros?.[0];
     if (!p) return "Não encontrei produto cadastrado para informar agora.";
     const dataProduto = formatSankhyaDate(p.DHALTER || p.DTALTER || p.DTINC || p.DHINCLUSAO || p.DTCAD);
@@ -468,8 +599,12 @@ export async function replyToUser({ userId, userName, text }) {
 
   const useERP = (state.persona === "diretoria" && state.isAuthenticated);
   const aiReply = await askGemini({ prompt, history: state.history, useERP });
-  
-  const genReply = aiReply || `Opa, não entendi muito bem. Digite *menu* para ver as opções principais ou *atendente* para falar com nossa equipe!`;
+
+  const fallbackMsg = useERP
+    ? `Estou com instabilidade temporária no provedor de IA agora. Reenvie a pergunta em alguns segundos ou peça uma consulta direta (ex.: "qual o último cliente cadastrado?").`
+    : `Opa, não entendi muito bem. Digite *menu* para ver as opções principais ou *atendente* para falar com nossa equipe!`;
+
+  const genReply = aiReply || fallbackMsg;
 
   appendHistory(state, text, genReply);
 

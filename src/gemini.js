@@ -275,6 +275,11 @@ async function askWithGemini({ prompt, history = [], useERP = false }) {
     } catch (error) {
       console.error("[Gemini] Falha ao gerar resposta:", error.message);
       if (error.response?.data) console.error(JSON.stringify(error.response.data, null, 2));
+      const status = Number(error.response?.status || 0);
+      const msg = String(error.response?.data?.error?.message || error.message || "");
+      if (status === 503 || /high demand|unavailable/i.test(msg)) {
+        return "O Gemini está com alta demanda no momento (503). Pode reenviar a mesma pergunta em alguns segundos que eu tento novamente.";
+      }
       return null;
     }
   }
