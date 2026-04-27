@@ -106,6 +106,8 @@ const SQL_VERBOS_BLOQUEADOS = [
   'REVOKE'
 ];
 
+const OLLAMA_MAX_ITERATIONS = 3;
+
 function parseFunctionArgs(rawArgs) {
   if (!rawArgs) return {};
   if (typeof rawArgs === 'string') {
@@ -286,7 +288,7 @@ async function askWithOllama({ prompt, history = [], useERP = false }) {
   const baseUrl = config.ollamaBaseUrl.replace(/\/+$/, '');
   const url = `${baseUrl}/api/chat`;
 
-  const messages = history.slice(-6).map((msg) => ({
+  const messages = history.slice(-2).map((msg) => ({
     role: msg.role === "assistant" ? "assistant" : "user",
     content: msg.content
   }));
@@ -294,7 +296,7 @@ async function askWithOllama({ prompt, history = [], useERP = false }) {
   messages.push({ role: "user", content: prompt });
 
   let iteration = 0;
-  while (iteration < 6) {
+  while (iteration < OLLAMA_MAX_ITERATIONS) {
     iteration++;
     try {
       const payload = {

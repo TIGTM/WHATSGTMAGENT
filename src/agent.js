@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { askGemini } from "./gemini.js";
 import { clientFaq, employeeFaq, products, recipes, companyInstitution } from "./data/catalog.js";
+import { executarSQL } from "./sankhya/sankhya-api.js";
 
 import fs from "fs";
 import path from "path";
@@ -149,6 +150,76 @@ function buildHandoff() {
   return "Um dos nossos atendentes vai continuar a conversa com você por aqui mesmo. Por favor, aguarde só um instante.\n\n_(Para voltar a falar comigo a qualquer momento, digite *voltar* ou *encerrar*)._";
 }
 
+function isOllamaRuntime() {
+  return config.llmProvider === "ollama" || (config.llmProvider === "auto" && !config.geminiApiKey);
+}
+
+function getTodayYMD() {
+  const dataNativa = new Date();
+  dataNativa.setHours(dataNativa.getHours() - 3);
+  const d = String(dataNativa.getDate()).padStart(2, "0");
+  const m = String(dataNativa.getMonth() + 1).padStart(2, "0");
+  const y = dataNativa.getFullYear();
+  return `${y}${m}${d}`;
+}
+
+function toNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const cleaned = String(value ?? "")
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .replace(/[^0-9.-]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function moneyBR(value) {
+  return toNumber(value).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL"
+  });
+}
+
+function appendHistory(state, userText, assistantText) {
+  state.history.push({ role: "user", content: userText });
+  state.history.push({ role: "assistant", content: assistantText });
+  if (state.history.length > 20) state.history.shift();
+}
+
+async function tryDirectERPReply(rawText) {
+  const text = normalize(rawText || "");
+  if (!text) return null;
+
+  if ((text.includes("ultimo") || text.includes("mais recente")) && text.includes("produto") && text.includes("cadastrado")) {
+    const res = await executarSQL("SELECT TOP 1 CODPROD, DESCRPROD, CODVOL FROM TGFPRO ORDER BY CODPROD DESC");
+    const p = res?.registros?.[0];
+    if (!p) return "Não encontrei produto cadastrado para informar agora.";
+    return [
+      "Último produto cadastrado:",
+      `- *Código*: ${p.CODPROD ?? "-"}`,
+      `- *Descrição*: ${p.DESCRPROD ?? "-"}`,
+      `- *Unidade*: ${p.CODVOL ?? "-"}`
+    ].join("\n");
+  }
+
+  if (text.includes("faturamento") && text.includes("hoje")) {
+    const todayYMD = getTodayYMD();
+    const res = await executarSQL(
+      `SELECT COUNT(1) AS QTDE_NOTAS, SUM(VLRNOTA) AS FATURAMENTO FROM TGFCAB WHERE DTNEG = '${todayYMD}'`
+    );
+    const row = res?.registros?.[0] || {};
+    const notas = toNumber(row.QTDE_NOTAS);
+    const total = toNumber(row.FATURAMENTO);
+    return [
+      `Faturamento de hoje (${todayYMD}):`,
+      `- *Notas*: ${notas}`,
+      `- *Total*: ${moneyBR(total)}`
+    ].join("\n");
+  }
+
+  return null;
+}
+
 export async function replyToUser({ userId, userName, text }) {
   const state = getOrCreateState(userId);
 
@@ -236,12 +307,25 @@ export async function replyToUser({ userId, userName, text }) {
 
   // Fluxo da Diretoria
   if (state.persona === "diretoria" && state.isAuthenticated) {
+    if (config.erpDirectFastpath) {
+      try {
+        const directReply = await tryDirectERPReply(text);
+        if (directReply) {
+          appendHistory(state, text, directReply);
+          return directReply;
+        }
+      } catch (error) {
+        console.error("[ERP FastPath] Falha:", error.message);
+      }
+    }
+
     if (intent === "erp_data") {
       text = "Me faça o favor de ser o analista do ERP: Crie um resumo listando o valor total de notas fiscais aprovadas HOJE (use TGFCAB e a data de hoje para DTNEG), busque os TOP 3 produtos mais vendidos (TGFITE), e me traga pelo menos dois exemplos de estoque (TGFEST). Não pare até agrupar o resultado. Mande a resposta formatada.";
     }
   }
 
   // Fallback Gemini IA e injeção do ERP para Diretoria
+  const runtimeOllama = isOllamaRuntime();
   const basePrompt = [
     `Você é ${config.agentName}, uma IA prestativa da ${config.companyName}.`,
     `Atenção: O usuário atual se identificou como da categoria: ${state.persona.toUpperCase()}.`,
@@ -274,11 +358,18 @@ export async function replyToUser({ userId, userName, text }) {
     );
   }
 
-  // Novo super-contexto master extraído dos arquivos markdown importados.
-  basePrompt.push(
-    `Informações base e aprendizados da empresa (ESTUDE isso antes de responder qualquer dúvida):`,
-    globalKnowledgeContext
-  );
+  if (runtimeOllama) {
+    basePrompt.push(
+      `MODO VPS CPU: responda de forma objetiva, curta e com baixa latência.`,
+      `Quando precisar de dado do ERP, priorize chamadas de ferramenta diretas e consultas pequenas (TOP 1/TOP 10).`
+    );
+  } else {
+    // Novo super-contexto master extraído dos arquivos markdown importados.
+    basePrompt.push(
+      `Informações base e aprendizados da empresa (ESTUDE isso antes de responder qualquer dúvida):`,
+      globalKnowledgeContext
+    );
+  }
 
   if (state.persona === "diretoria" && state.isAuthenticated) {
     if (config.erpWriteEnabled) {
@@ -307,9 +398,7 @@ export async function replyToUser({ userId, userName, text }) {
   
   const genReply = aiReply || `Opa, não entendi muito bem. Digite *menu* para ver as opções principais ou *atendente* para falar com nossa equipe!`;
 
-  state.history.push({ role: "user", content: text });
-  state.history.push({ role: "assistant", content: genReply });
-  if(state.history.length > 20) state.history.shift();
+  appendHistory(state, text, genReply);
 
   return genReply;
 }
